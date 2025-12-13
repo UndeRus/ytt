@@ -1,0 +1,23 @@
+[package]
+name = "ytt"
+version = "1.0.0"
+edition = "2021"
+authors = ["Your Name <you@example.com>"]
+description = "A Rust implementation of YouTube Transcript API"
+license = "MIT"
+
+[dependencies]
+reqwest = { version = "0.11", features = ["json", "cookies"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+tokio = { version = "1", features = ["full"] }
+anyhow = "1.0"
+clap = { version = "4", features = ["derive"] }
+url = "2.5"
+quick-xml = { version = "0.31", features = ["serialize"] }
+regex = "1.10"
+thiserror = "1.0"
+
+[[bin]]
+name = "ytt"
+path = "src/main.rs"
