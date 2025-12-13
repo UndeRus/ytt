@@ -4,22 +4,31 @@ A Rust implementation of the YouTube Transcript API, similar to the Python [yout
 
 ## Features
 
-- ✅ Fetch transcripts/captions from YouTube videos using InnerTube API (same as Python version)
-- ✅ Support for multiple languages with priority fallback
-- ✅ Handle both manually created and auto-generated transcripts (prioritizes manual)
-- ✅ Multiple output formats: JSON, text, TXT, SRT, Markdown
-- ✅ Extract video ID from various YouTube URL formats
-- ✅ Translation support for translatable transcripts
-- ✅ Proper XML parsing with quick-xml
-- ✅ Comprehensive error handling with specific error types
-- ✅ Consent cookie handling for GDPR compliance
-- ✅ Playability status checking
-- ✅ List available transcripts for a video
-- ✅ ChatGPT cleanup integration for improved transcripts
-- ✅ Configurable request delays to avoid rate limiting
-- ✅ File output support
+- Fetch transcripts/captions from YouTube videos using InnerTube API
+- Support for multiple languages with priority fallback
+- Handle both manually created and auto-generated transcripts (prioritizes manual)
+- Multiple output formats: JSON, text, TXT, SRT, Markdown
+- Extract video ID from various YouTube URL formats
+- Translation support for translatable transcripts
+- Proper XML parsing with quick-xml
+- Consent cookie handling for GDPR compliance
+- Playability status checking
+- List available transcripts for a video
+- ChatGPT cleanup integration for improved transcripts
+- Configurable request delays to avoid rate limiting
+- File output support
 
 ## Installation
+
+### Pre-built Binaries
+
+Download pre-built executables from the [Releases](https://github.com/ljantzen/ytt/releases) page:
+
+- **Linux**: `ytt-linux-x86_64.tar.gz` (GNU) or `ytt-linux-x86_64-musl.tar.gz` (musl)
+- **macOS**: `ytt-macos-x86_64.tar.gz` (Intel) or `ytt-macos-arm64.tar.gz` (Apple Silicon)
+- **Windows**: `ytt-windows-x86_64.exe.zip`
+
+Extract and add to your PATH, or use directly.
 
 ### From Source
 
@@ -29,11 +38,11 @@ cd ytt
 cargo build --release
 ```
 
-The binary will be available at `target/release/ytt`.
+The binary will be available at `target/release/ytt` (or `target/release/ytt.exe` on Windows).
 
 ### Requirements
 
-- Rust 1.70+ (edition 2021)
+- Rust 1.70+ (edition 2021) - only needed for building from source
 - Internet connection for fetching transcripts
 
 ## Quick Start
