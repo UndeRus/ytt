@@ -1,0 +1,65 @@
+name: Release
+
+on:
+  push:
+    tags:
+      # Trigger on version tag push like v1.0.0
+      - 'v*'
+  workflow_dispatch:
+
+# Add permissions configuration
+permissions:
+  contents: write # Required for creating releases and uploading assets
+
+jobs:
+  release:
+    name: Build and Release Binaries
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # ratchet:actions/checkout@v5
+        with:
+          persist-credentials: false
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@5d458579430fc14a04a08a1e7d3694f545e91ce6 # ratchet:dtolnay/rust-toolchain@stable
+
+      - name: Build binary
+        run: cargo build --release
+
+      - name: Package binary (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          mkdir -p dist
+          cp target/release/ytt.exe dist/ytt.exe
+          cd dist
+          Compress-Archive -Path ytt.exe -DestinationPath ytt-windows-latest.zip
+        shell: pwsh
+
+      - name: Package binary (Unix)
+        if: runner.os != 'Windows'
+        run: |
+          mkdir -p dist
+          cp target/release/ytt dist/ytt
+          cd dist
+          tar -czvf ytt-${{ runner.os }}.tar.gz ytt
+        shell: bash
+
+      - name: Create GitHub Release and Upload Assets
+        uses: softprops/action-gh-release@6da8fa9354ddfdc4aeace5fc48d7f679b5214090 # ratchet:softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/tags/')
+        with:
+          name: Release ${{ github.ref_name }}
+          tag_name: ${{ github.ref_name }}
+          generate_release_notes: true
+          draft: false
+          files: |
+            dist/*.tar.gz
+            dist/*.zip
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
