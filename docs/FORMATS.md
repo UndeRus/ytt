@@ -17,6 +17,7 @@ characters that readers just don't care about.
 ytt video_id -f text
 ytt video_id -f txt
 ytt video_id  # default is text
+ytt video_id -o transcript.txt
 ```
 
 ---
@@ -46,10 +47,19 @@ characters that readers just don't care about.
 **[3.92s]** characters that readers just don't care about.
 ```
 
+**With ChatGPT cleanup (`--cleanup`):**
+ChatGPT will add proper Markdown formatting including:
+- **Bold** for emphasis
+- *Italics* for subtle emphasis
+- Headings (##, ###) for sections
+- Bullet points or numbered lists
+- Blockquotes for notable quotes
+
 **Usage:**
 ```bash
 ytt video_id -f markdown -o transcript.md
 ytt video_id -f md --timestamps -o transcript.md
+ytt video_id --cleanup -f markdown -o cleaned.md
 ```
 
 ---
@@ -77,6 +87,7 @@ Structured JSON format with timestamps, text, start time, and duration. Perfect 
 ```bash
 ytt video_id -f json -o transcript.json
 ytt video_id -f json | jq .
+ytt video_id --cleanup -f json -o cleaned.json
 ```
 
 ---
@@ -170,3 +181,16 @@ ytt video_id -f srt -o subtitles.srt
 ```
 
 If `-o` is not specified, output goes to stdout (terminal).
+
+## Combining Formats with Other Options
+
+```bash
+# Cleanup + Markdown
+ytt video_id --cleanup -f markdown -o cleaned.md
+
+# Translation + JSON
+ytt video_id --languages es --translate en -f json -o translated.json
+
+# Timestamps + SRT
+ytt video_id --timestamps -f srt -o subtitles.srt
+```

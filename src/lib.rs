@@ -103,6 +103,12 @@ pub struct YouTubeTranscript {
     delay_ms: u64,
 }
 
+impl Default for YouTubeTranscript {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl YouTubeTranscript {
     pub fn new() -> Self {
         Self::with_delay(500) // Default 500ms delay
@@ -358,7 +364,7 @@ impl YouTubeTranscript {
                             .get("languageName")?
                             .get("runs")?
                             .as_array()?
-                            .get(0)?
+                            .first()?
                             .get("text")?
                             .as_str()?
                             .to_string();
@@ -393,7 +399,7 @@ impl YouTubeTranscript {
                     .get("name")
                     .and_then(|n| n.get("runs"))
                     .and_then(|r| r.as_array())
-                    .and_then(|arr| arr.get(0))
+                    .and_then(|arr| arr.first())
                     .and_then(|r| r.get("text"))
                     .and_then(|t| t.as_str())
                     .unwrap_or(&language_code)
@@ -585,5 +591,154 @@ impl YouTubeTranscript {
             is_translatable: transcript_info.is_translatable,
             transcript: transcript_items,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_extract_video_id_direct() {
+        assert_eq!(
+            YouTubeTranscript::extract_video_id("dQw4w9WgXcQ").unwrap(),
+            "dQw4w9WgXcQ"
+        );
+    }
+
+    #[test]
+    fn test_extract_video_id_watch_url() {
+        assert_eq!(
+            YouTubeTranscript::extract_video_id("https://www.youtube.com/watch?v=dQw4w9WgXcQ")
+                .unwrap(),
+            "dQw4w9WgXcQ"
+        );
+    }
+
+    #[test]
+    fn test_extract_video_id_short_url() {
+        assert_eq!(
+            YouTubeTranscript::extract_video_id("https://youtu.be/dQw4w9WgXcQ").unwrap(),
+            "dQw4w9WgXcQ"
+        );
+    }
+
+    #[test]
+    fn test_extract_video_id_invalid() {
+        assert!(YouTubeTranscript::extract_video_id("not-a-valid-id").is_err());
+        assert!(YouTubeTranscript::extract_video_id("https://example.com").is_err());
+    }
+
+    #[test]
+    fn test_transcript_list_find_transcript() {
+        let mut manually_created = HashMap::new();
+        let mut generated = HashMap::new();
+
+        manually_created.insert(
+            "en".to_string(),
+            TranscriptInfo {
+                language_code: "en".to_string(),
+                language: "English".to_string(),
+                is_generated: false,
+                is_translatable: true,
+                base_url: "https://example.com/en".to_string(),
+                translation_languages: vec![],
+            },
+        );
+
+        generated.insert(
+            "es".to_string(),
+            TranscriptInfo {
+                language_code: "es".to_string(),
+                language: "Spanish".to_string(),
+                is_generated: true,
+                is_translatable: false,
+                base_url: "https://example.com/es".to_string(),
+                translation_languages: vec![],
+            },
+        );
+
+        let list = TranscriptList {
+            video_id: "test".to_string(),
+            manually_created,
+            generated,
+            translation_languages: vec![],
+        };
+
+        // Should find manually created first
+        assert_eq!(list.find_transcript(&["en"]).unwrap().language_code, "en");
+        // Should find generated if manually created not available
+        assert_eq!(list.find_transcript(&["es"]).unwrap().language_code, "es");
+        // Should prefer manually created over generated
+        assert_eq!(list.find_transcript(&["en", "es"]).unwrap().language_code, "en");
+        // Should error if not found
+        assert!(list.find_transcript(&["fr"]).is_err());
+    }
+
+    #[test]
+    fn test_transcript_list_find_manually_created() {
+        let mut manually_created = HashMap::new();
+        manually_created.insert(
+            "en".to_string(),
+            TranscriptInfo {
+                language_code: "en".to_string(),
+                language: "English".to_string(),
+                is_generated: false,
+                is_translatable: true,
+                base_url: "https://example.com/en".to_string(),
+                translation_languages: vec![],
+            },
+        );
+
+        let list = TranscriptList {
+            video_id: "test".to_string(),
+            manually_created,
+            generated: HashMap::new(),
+            translation_languages: vec![],
+        };
+
+        assert_eq!(
+            list.find_manually_created(&["en"]).unwrap().language_code,
+            "en"
+        );
+        assert!(list.find_manually_created(&["es"]).is_err());
+    }
+
+    #[test]
+    fn test_transcript_list_find_generated() {
+        let mut generated = HashMap::new();
+        generated.insert(
+            "es".to_string(),
+            TranscriptInfo {
+                language_code: "es".to_string(),
+                language: "Spanish".to_string(),
+                is_generated: true,
+                is_translatable: false,
+                base_url: "https://example.com/es".to_string(),
+                translation_languages: vec![],
+            },
+        );
+
+        let list = TranscriptList {
+            video_id: "test".to_string(),
+            manually_created: HashMap::new(),
+            generated,
+            translation_languages: vec![],
+        };
+
+        assert_eq!(list.find_generated(&["es"]).unwrap().language_code, "es");
+        assert!(list.find_generated(&["en"]).is_err());
+    }
+
+    #[test]
+    fn test_youtube_transcript_default() {
+        let api = YouTubeTranscript::default();
+        assert_eq!(api.delay_ms, 500);
+    }
+
+    #[test]
+    fn test_youtube_transcript_with_delay() {
+        let api = YouTubeTranscript::with_delay(1000);
+        assert_eq!(api.delay_ms, 1000);
     }
 }

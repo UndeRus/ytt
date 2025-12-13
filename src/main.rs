@@ -23,10 +23,6 @@ struct Args {
     #[arg(short, long, default_value = "text")]
     format: String,
 
-    /// Output file path (if not specified, outputs to stdout)
-    #[arg(short, long)]
-    output: Option<String>,
-
     /// Show transcript text with timestamps (deprecated: timestamps removed by default)
     #[arg(long)]
     timestamps: bool,
@@ -46,6 +42,10 @@ struct Args {
     /// OpenAI API key (alternative to OPENAI_API_KEY env var)
     #[arg(long)]
     openai_key: Option<String>,
+
+    /// Output file path (if not specified, outputs to stdout)
+    #[arg(short, long)]
+    output: Option<String>,
 }
 
 #[tokio::main]
@@ -177,11 +177,7 @@ enum OutputDestination {
 impl OutputDestination {
     fn writer(&self) -> Result<Box<dyn Write>, TranscriptError> {
         match self {
-            OutputDestination::Stdout => {
-                // For stdout, we need to return a type that implements Write
-                // We'll use a different approach - write directly
-                Ok(Box::new(io::stdout()))
-            }
+            OutputDestination::Stdout => Ok(Box::new(io::stdout())),
             OutputDestination::File(path) => {
                 let file = File::create(path).map_err(|e| {
                     TranscriptError::IoError(format!("Failed to create file {}: {}", path, e))
@@ -283,4 +279,157 @@ fn format_srt_time(seconds: f64) -> String {
     let millis = ((secs - secs_int as f64) * 1000.0) as u32;
 
     format!("{:02}:{:02}:{:02},{:03}", hours, minutes, secs_int, millis)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+    use tempfile::TempDir;
+
+    #[test]
+    fn test_format_srt_time() {
+        assert_eq!(format_srt_time(0.0), "00:00:00,000");
+        assert_eq!(format_srt_time(65.5), "00:01:05,500");
+        assert_eq!(format_srt_time(3661.123), "01:01:01,123");
+    }
+
+    #[test]
+    fn test_output_destination_stdout() {
+        let dest = OutputDestination::Stdout;
+        let writer = dest.writer();
+        assert!(writer.is_ok());
+    }
+
+    #[test]
+    fn test_output_destination_file() {
+        let temp_dir = TempDir::new().unwrap();
+        let file_path = temp_dir.path().join("test_output.txt");
+        let dest = OutputDestination::File(file_path.to_string_lossy().to_string());
+        let writer = dest.writer();
+        assert!(writer.is_ok());
+    }
+
+    #[test]
+    fn test_output_json() {
+        let items = vec![
+            TranscriptItem {
+                text: "Hello".to_string(),
+                start: 0.0,
+                duration: 1.0,
+            },
+            TranscriptItem {
+                text: "World".to_string(),
+                start: 1.0,
+                duration: 1.0,
+            },
+        ];
+
+        let temp_dir = TempDir::new().unwrap();
+        let file_path = temp_dir.path().join("test.json");
+        let dest = OutputDestination::File(file_path.to_string_lossy().to_string());
+
+        assert!(output_json(&items, &dest).is_ok());
+        let content = fs::read_to_string(&file_path).unwrap();
+        assert!(content.contains("\"text\": \"Hello\""));
+        assert!(content.contains("\"start\": 0.0"));
+    }
+
+    #[test]
+    fn test_output_srt() {
+        let items = vec![
+            TranscriptItem {
+                text: "Hello".to_string(),
+                start: 0.0,
+                duration: 2.5,
+            },
+            TranscriptItem {
+                text: "World".to_string(),
+                start: 2.5,
+                duration: 2.5,
+            },
+        ];
+
+        let temp_dir = TempDir::new().unwrap();
+        let file_path = temp_dir.path().join("test.srt");
+        let dest = OutputDestination::File(file_path.to_string_lossy().to_string());
+
+        assert!(output_srt(&items, &dest).is_ok());
+        let content = fs::read_to_string(&file_path).unwrap();
+        assert!(content.contains("1\n"));
+        assert!(content.contains("00:00:00,000 --> 00:00:02,500"));
+        assert!(content.contains("Hello"));
+    }
+
+    #[test]
+    fn test_output_text_only() {
+        let items = vec![TranscriptItem {
+            text: "Hello world".to_string(),
+            start: 0.0,
+            duration: 1.0,
+        }];
+
+        let temp_dir = TempDir::new().unwrap();
+        let file_path = temp_dir.path().join("test.txt");
+        let dest = OutputDestination::File(file_path.to_string_lossy().to_string());
+
+        assert!(output_text_only(&items, &dest).is_ok());
+        let content = fs::read_to_string(&file_path).unwrap();
+        assert_eq!(content.trim(), "Hello world");
+    }
+
+    #[test]
+    fn test_output_text_with_timestamps() {
+        let items = vec![TranscriptItem {
+            text: "Hello world".to_string(),
+            start: 1.5,
+            duration: 2.0,
+        }];
+
+        let temp_dir = TempDir::new().unwrap();
+        let file_path = temp_dir.path().join("test.txt");
+        let dest = OutputDestination::File(file_path.to_string_lossy().to_string());
+
+        assert!(output_text(&items, &dest).is_ok());
+        let content = fs::read_to_string(&file_path).unwrap();
+        // Check for timestamp format [X.XX] where X can be any digit
+        assert!(content.contains("[1"));
+        assert!(content.contains("Hello world"));
+    }
+
+    #[test]
+    fn test_output_markdown() {
+        let items = vec![TranscriptItem {
+            text: "Hello world".to_string(),
+            start: 0.0,
+            duration: 1.0,
+        }];
+
+        let temp_dir = TempDir::new().unwrap();
+        let file_path = temp_dir.path().join("test.md");
+        let dest = OutputDestination::File(file_path.to_string_lossy().to_string());
+
+        assert!(output_markdown(&items, &dest, false).is_ok());
+        let content = fs::read_to_string(&file_path).unwrap();
+        assert!(content.contains("# Transcript"));
+        assert!(content.contains("Hello world"));
+    }
+
+    #[test]
+    fn test_output_markdown_with_chatgpt_formatting() {
+        let items = vec![TranscriptItem {
+            text: "## Section\n\n**Bold text** and *italic*".to_string(),
+            start: 0.0,
+            duration: 1.0,
+        }];
+
+        let temp_dir = TempDir::new().unwrap();
+        let file_path = temp_dir.path().join("test.md");
+        let dest = OutputDestination::File(file_path.to_string_lossy().to_string());
+
+        assert!(output_markdown(&items, &dest, false).is_ok());
+        let content = fs::read_to_string(&file_path).unwrap();
+        // Should detect ChatGPT formatting and not add extra heading
+        assert!(content.contains("## Section"));
+    }
 }

@@ -10,7 +10,7 @@ Yes, **deliberately delaying requests can help resolve rate limiting issues**. Y
 
 ## Implementation
 
-The application now includes configurable delays between requests:
+The application includes configurable delays between requests:
 
 1. **Before initial HTML fetch** - Prevents immediate rate limiting
 2. **Between HTML fetch and InnerTube API call** - Spreads out API requests
@@ -107,3 +107,23 @@ let transcript = api.fetch_transcript("video_id", Some(vec!["en"])).await?;
 - Delays don't guarantee no rate limiting, but significantly reduce the chance
 - If you're still getting blocked, increase the delay or wait longer between sessions
 - YouTube's rate limits can vary based on time of day, IP reputation, etc.
+- The delay applies to all HTTP requests made by the library
+
+## Troubleshooting
+
+**Problem**: Getting IP blocked errors
+**Solution**: 
+- Increase delay to 2000-5000ms
+- Wait 5-10 minutes before retrying
+- Check if you're making too many requests from the same IP
+
+**Problem**: Bot detection triggered
+**Solution**:
+- Increase delay significantly (5000ms+)
+- Wait longer between sessions
+- Consider using a VPN or different network
+
+**Problem**: Rate limiting on translation
+**Solution**:
+- Translation requires multiple API calls, use higher delay (2000ms+)
+- Process translations separately from regular fetches

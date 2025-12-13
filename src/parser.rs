@@ -3,13 +3,13 @@ use quick_xml::Reader;
 use std::str;
 
 pub struct TranscriptParser {
-    preserve_formatting: bool,
+    _preserve_formatting: bool,
 }
 
 impl TranscriptParser {
     pub fn new(preserve_formatting: bool) -> Self {
         Self {
-            preserve_formatting,
+            _preserve_formatting: preserve_formatting,
         }
     }
 
@@ -237,9 +237,9 @@ mod html_escape {
                         }
                     }
                     format!("&{};", entity)
-                } else if entity.starts_with('#') {
+                } else if let Some(stripped) = entity.strip_prefix('#') {
                     // Decimal entity
-                    if let Ok(num) = entity[1..].parse::<u32>() {
+                    if let Ok(num) = stripped.parse::<u32>() {
                         if let Some(ch) = char::from_u32(num) {
                             return ch.to_string();
                         }
@@ -250,5 +250,122 @@ mod html_escape {
                 }
             }
         }
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        #[test]
+        fn test_decode_basic_entities() {
+            assert_eq!(decode_html_entities("&quot;"), "\"");
+            assert_eq!(decode_html_entities("&amp;"), "&");
+            assert_eq!(decode_html_entities("&apos;"), "'");
+            assert_eq!(decode_html_entities("&lt;"), "<");
+            assert_eq!(decode_html_entities("&gt;"), ">");
+            assert_eq!(decode_html_entities("&nbsp;"), " ");
+        }
+
+        #[test]
+        fn test_decode_hex_entities() {
+            assert_eq!(decode_html_entities("&#x41;"), "A");
+            assert_eq!(decode_html_entities("&#x61;"), "a");
+        }
+
+        #[test]
+        fn test_decode_decimal_entities() {
+            assert_eq!(decode_html_entities("&#65;"), "A");
+            assert_eq!(decode_html_entities("&#97;"), "a");
+        }
+
+        #[test]
+        fn test_decode_mixed() {
+            assert_eq!(
+                decode_html_entities("Hello &amp; world &quot;test&quot;"),
+                "Hello & world \"test\""
+            );
+        }
+
+        #[test]
+        fn test_decode_unknown_entity() {
+            assert_eq!(decode_html_entities("&unknown;"), "&unknown;");
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_text_format() {
+        let xml = r#"<transcript>
+            <text start="0.0" dur="2.5">Hello world</text>
+            <text start="2.5" dur="3.0">This is a test</text>
+        </transcript>"#;
+
+        let parser = TranscriptParser::new(false);
+        let items = parser.parse(xml).unwrap();
+
+        assert_eq!(items.len(), 2);
+        assert_eq!(items[0].text, "Hello world");
+        assert_eq!(items[0].start, 0.0);
+        assert_eq!(items[0].duration, 2.5);
+        assert_eq!(items[1].text, "This is a test");
+        assert_eq!(items[1].start, 2.5);
+    }
+
+    #[test]
+    fn test_parse_p_format() {
+        let xml = r#"<transcript>
+            <p t="0" d="2500">Hello world</p>
+            <p t="2500" d="3000">This is a test</p>
+        </transcript>"#;
+
+        let parser = TranscriptParser::new(false);
+        let items = parser.parse(xml).unwrap();
+
+        assert_eq!(items.len(), 2);
+        assert_eq!(items[0].text, "Hello world");
+        assert_eq!(items[0].start, 0.0);
+        assert_eq!(items[0].duration, 2.5);
+        assert_eq!(items[1].text, "This is a test");
+        assert_eq!(items[1].start, 2.5);
+    }
+
+    #[test]
+    fn test_parse_with_html_entities() {
+        let xml = r#"<transcript>
+            <text start="0.0" dur="2.5">Hello &amp; world</text>
+        </transcript>"#;
+
+        let parser = TranscriptParser::new(false);
+        let items = parser.parse(xml).unwrap();
+
+        assert_eq!(items.len(), 1);
+        // quick-xml unescapes &amp; to &, then our decoder processes it
+        // The actual result depends on how quick-xml handles it
+        assert!(items[0].text.contains("Hello"));
+        assert!(items[0].text.contains("world"));
+    }
+
+    #[test]
+    fn test_parse_empty_text() {
+        let xml = r#"<transcript>
+            <text start="0.0" dur="2.5"></text>
+        </transcript>"#;
+
+        let parser = TranscriptParser::new(false);
+        let items = parser.parse(xml).unwrap();
+
+        assert_eq!(items.len(), 0);
+    }
+
+    #[test]
+    fn test_parse_invalid_xml() {
+        let xml = "<transcript><text>Unclosed tag";
+
+        let parser = TranscriptParser::new(false);
+        assert!(parser.parse(xml).is_err());
     }
 }

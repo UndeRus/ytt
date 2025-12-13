@@ -67,3 +67,31 @@ impl From<serde_json::Error> for TranscriptError {
 }
 
 pub type Result<T> = std::result::Result<T, TranscriptError>;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_error_display() {
+        let err = TranscriptError::VideoUnavailable("test123".to_string());
+        assert!(err.to_string().contains("test123"));
+    }
+
+    #[test]
+    fn test_error_from_io_error() {
+        let io_err = std::io::Error::new(std::io::ErrorKind::NotFound, "file not found");
+        let transcript_err: TranscriptError = io_err.into();
+        assert!(matches!(transcript_err, TranscriptError::IoError(_)));
+    }
+
+    #[test]
+    fn test_error_from_json_error() {
+        let json_err = serde_json::from_str::<serde_json::Value>("invalid json");
+        assert!(json_err.is_err());
+        if let Err(e) = json_err {
+            let transcript_err: TranscriptError = e.into();
+            assert!(matches!(transcript_err, TranscriptError::JsonParseError(_)));
+        }
+    }
+}

@@ -123,9 +123,33 @@ impl ChatGPT {
         let cleaned_text = chat_response
             .choices
             .first()
-            .and_then(|choice| Some(choice.message.content.clone()))
+            .map(|choice| choice.message.content.clone())
             .ok_or_else(|| TranscriptError::HttpError("No response from OpenAI API".to_string()))?;
 
         Ok(cleaned_text.trim().to_string())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_chatgpt_new_without_key() {
+        // Clear any existing env var for this test
+        std::env::remove_var("OPENAI_API_KEY");
+        assert!(ChatGPT::new(None).is_err());
+    }
+
+    #[test]
+    fn test_chatgpt_new_with_key() {
+        assert!(ChatGPT::new(Some("test-key".to_string())).is_ok());
+    }
+
+    #[test]
+    fn test_chatgpt_new_with_env_var() {
+        std::env::set_var("OPENAI_API_KEY", "test-env-key");
+        assert!(ChatGPT::new(None).is_ok());
+        std::env::remove_var("OPENAI_API_KEY");
     }
 }
