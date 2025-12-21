@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 const WATCH_URL: &str = "https://www.youtube.com/watch?v={video_id}";
+const PLAYLIST_URL: &str = "https://www.youtube.com/playlist?list={playlist_id}";
 const INNERTUBE_API_URL: &str = "https://www.youtube.com/youtubei/v1/player?key={api_key}";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -20,6 +21,7 @@ pub struct TranscriptItem {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TranscriptResponse {
     pub video_id: String,
+    pub title: Option<String>,
     pub language: String,
     pub language_code: String,
     pub is_generated: bool,
@@ -45,6 +47,7 @@ pub struct TranslationLanguage {
 
 pub struct TranscriptList {
     pub video_id: String,
+    pub title: Option<String>,
     pub manually_created: HashMap<String, TranscriptInfo>,
     pub generated: HashMap<String, TranscriptInfo>,
     pub translation_languages: Vec<TranslationLanguage>,
@@ -223,6 +226,125 @@ impl YouTubeTranscript {
         )))
     }
 
+    /// Extract playlist ID from YouTube playlist URL
+    pub fn extract_playlist_id(url_or_id: &str) -> Result<String> {
+        let input = url_or_id.trim();
+        
+        // Try parsing as URL (with or without protocol)
+        let url_str = if input.starts_with("http://") || input.starts_with("https://") {
+            input.to_string()
+        } else if input.contains("youtube.com") {
+            format!("https://{}", input)
+        } else {
+            input.to_string()
+        };
+
+        let url = match url::Url::parse(&url_str) {
+            Ok(u) => u,
+            Err(_) => {
+                return Err(TranscriptError::InvalidVideoId(format!(
+                    "{} (Invalid playlist URL)",
+                    url_or_id
+                )));
+            }
+        };
+
+        if url
+            .host_str()
+            .map(|h| h.contains("youtube.com"))
+            .unwrap_or(false)
+        {
+            // Playlist URL: ?list=PLAYLIST_ID
+            if let Some(playlist_id) = url
+                .query_pairs()
+                .find(|(k, _)| k == "list")
+                .map(|(_, v)| v.to_string())
+            {
+                return Ok(playlist_id);
+            }
+        }
+
+        Err(TranscriptError::InvalidVideoId(format!(
+            "{} (Could not extract playlist ID from URL)",
+            url_or_id
+        )))
+    }
+
+    /// Fetch all video IDs from a playlist
+    pub async fn get_playlist_video_ids(&self, playlist_id: &str) -> Result<Vec<String>> {
+        use regex::Regex;
+        
+        let url = PLAYLIST_URL.replace("{playlist_id}", playlist_id);
+        
+        // Add delay before request
+        self.delay().await;
+        
+        let response = self
+            .client
+            .get(&url)
+            .send()
+            .await
+            .map_err(|e| TranscriptError::HttpError(format!("Failed to fetch playlist: {}", e)))?;
+
+        self.check_http_errors(&response, playlist_id)?;
+
+        let html = response
+            .text()
+            .await
+            .map_err(|e| TranscriptError::HttpError(format!("Failed to read playlist HTML: {}", e)))?;
+
+        // Extract video IDs from the playlist page
+        // YouTube stores video IDs in various places in the HTML
+        // We'll look for the pattern "/watch?v=VIDEO_ID" or "videoId":"VIDEO_ID"
+        let mut video_ids = Vec::new();
+        
+        // Pattern 1: "videoId":"VIDEO_ID"
+        let re1 = Regex::new(r#""videoId":"([a-zA-Z0-9_-]{11})""#)
+            .map_err(|_| TranscriptError::YouTubeDataUnparsable(playlist_id.to_string()))?;
+        
+        for cap in re1.captures_iter(&html) {
+            if let Some(video_id) = cap.get(1) {
+                let id = video_id.as_str().to_string();
+                if !video_ids.contains(&id) {
+                    video_ids.push(id);
+                }
+            }
+        }
+        
+        // Pattern 2: /watch?v=VIDEO_ID (as fallback)
+        if video_ids.is_empty() {
+            let re2 = Regex::new(r#"/watch\?v=([a-zA-Z0-9_-]{11})"#)
+                .map_err(|_| TranscriptError::YouTubeDataUnparsable(playlist_id.to_string()))?;
+            
+            for cap in re2.captures_iter(&html) {
+                if let Some(video_id) = cap.get(1) {
+                    let id = video_id.as_str().to_string();
+                    if !video_ids.contains(&id) {
+                        video_ids.push(id);
+                    }
+                }
+            }
+        }
+
+        if video_ids.is_empty() {
+            return Err(TranscriptError::YouTubeDataUnparsable(
+                format!("No videos found in playlist: {}", playlist_id)
+            ));
+        }
+
+        Ok(video_ids)
+    }
+
+    /// Get video title
+    pub async fn get_video_title(&self, video_id: &str) -> Result<String> {
+        let html = self.fetch_video_html(video_id).await?;
+        // Delay between HTML fetch and API call to avoid rate limiting
+        self.delay().await;
+        let api_key = self.extract_innertube_api_key(&html, video_id)?;
+        let innertube_data = self.fetch_innertube_data(video_id, &api_key).await?;
+        self.extract_video_title(video_id, &innertube_data)
+    }
+
     /// List all available transcripts for a video
     pub async fn list_transcripts(&self, video_id: &str) -> Result<TranscriptList> {
         let html = self.fetch_video_html(video_id).await?;
@@ -242,9 +364,10 @@ impl YouTubeTranscript {
         let transcript_list = self.list_transcripts(video_id).await?;
 
         let languages = languages.unwrap_or_else(|| vec!["en"]);
+        let title = transcript_list.title.clone();
         let transcript_info = transcript_list.find_transcript(&languages)?;
 
-        self.fetch_transcript_data(video_id, transcript_info, None)
+        self.fetch_transcript_data(video_id, transcript_info, None, title)
             .await
     }
 
@@ -256,6 +379,7 @@ impl YouTubeTranscript {
         target_language: &str,
     ) -> Result<TranscriptResponse> {
         let transcript_list = self.list_transcripts(video_id).await?;
+        let title = transcript_list.title.clone();
         let source_transcript = transcript_list.find_transcript(source_languages)?;
 
         if !source_transcript.is_translatable {
@@ -273,7 +397,7 @@ impl YouTubeTranscript {
             ));
         }
 
-        self.fetch_transcript_data(video_id, source_transcript, Some(target_language))
+        self.fetch_transcript_data(video_id, source_transcript, Some(target_language), title)
             .await
     }
 
@@ -382,6 +506,26 @@ impl YouTubeTranscript {
         })?;
 
         Ok(data)
+    }
+
+    fn extract_video_title(
+        &self,
+        video_id: &str,
+        innertube_data: &serde_json::Value,
+    ) -> Result<String> {
+        // Check playability status
+        self.assert_playability(video_id, innertube_data)?;
+
+        let video_details = innertube_data
+            .get("videoDetails")
+            .ok_or_else(|| TranscriptError::YouTubeDataUnparsable(video_id.to_string()))?;
+
+        let title = video_details
+            .get("title")
+            .and_then(|t| t.as_str())
+            .ok_or_else(|| TranscriptError::YouTubeDataUnparsable(video_id.to_string()))?;
+
+        Ok(title.to_string())
     }
 
     fn extract_captions_json(
@@ -493,8 +637,16 @@ impl YouTubeTranscript {
             return Err(TranscriptError::TranscriptsDisabled(video_id.to_string()));
         }
 
+        // Extract video title
+        let title = innertube_data
+            .get("videoDetails")
+            .and_then(|vd| vd.get("title"))
+            .and_then(|t| t.as_str())
+            .map(|s| s.to_string());
+
         Ok(TranscriptList {
             video_id: video_id.to_string(),
+            title,
             manually_created,
             generated,
             translation_languages,
@@ -589,6 +741,7 @@ impl YouTubeTranscript {
         video_id: &str,
         transcript_info: &TranscriptInfo,
         translate_to: Option<&str>,
+        title: Option<String>,
     ) -> Result<TranscriptResponse> {
         let mut url = transcript_info.base_url.clone();
 
@@ -633,6 +786,7 @@ impl YouTubeTranscript {
 
         Ok(TranscriptResponse {
             video_id: video_id.to_string(),
+            title,
             language,
             language_code: translate_to
                 .unwrap_or(&transcript_info.language_code)
@@ -718,6 +872,7 @@ mod tests {
 
         let list = TranscriptList {
             video_id: "test".to_string(),
+            title: None,
             manually_created,
             generated,
             translation_languages: vec![],
@@ -750,6 +905,7 @@ mod tests {
 
         let list = TranscriptList {
             video_id: "test".to_string(),
+            title: None,
             manually_created,
             generated: HashMap::new(),
             translation_languages: vec![],
@@ -779,6 +935,7 @@ mod tests {
 
         let list = TranscriptList {
             video_id: "test".to_string(),
+            title: None,
             manually_created: HashMap::new(),
             generated,
             translation_languages: vec![],

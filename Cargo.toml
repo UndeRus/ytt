@@ -1,6 +1,6 @@
 [package]
 name = "ytt"
-version = "1.0.2"
+version = "1.1.0"
 edition = "2021"
 authors = ["Your Name <you@example.com>"]
 description = "A Rust implementation of YouTube Transcript API"

@@ -17,6 +17,10 @@ A Rust implementation of the YouTube Transcript API
 - ChatGPT cleanup integration for improved transcripts
 - Configurable request delays to avoid rate limiting
 - File output support
+- Use video title as output filename (`-n/--name`)
+- Include video URL in output (`-u/--url` - works with both markdown and text formats)
+- Process entire playlists (`-p/--playlist`)
+- Limit number of videos processed in playlists (`-m/--max`)
 
 ## Installation
 
@@ -62,6 +66,12 @@ ytt mcbwS5Owclo -f json -o transcript.json
 
 # Get Markdown output
 ytt mcbwS5Owclo -f markdown -o transcript.md
+
+# Use video title as filename
+ytt mcbwS5Owclo -n
+
+# Process entire playlist
+ytt "https://www.youtube.com/playlist?list=PLAYLIST_ID" -p -n
 ```
 
 ## Usage
@@ -103,7 +113,11 @@ ytt dQw4w9WgXcQ --timestamps
 - `-l, --languages <LANGUAGES>`: Language codes (e.g., en, es, fr). Can specify multiple. Prioritizes manually created transcripts.
 - `-t, --translate <LANGUAGE>`: Translate transcript to this language code (requires source language)
 - `-f, --format <FORMAT>`: Output format: `json`, `text`, `txt`, `srt`, `markdown`, or `md` (default: `text`)
-- `-o, --output <OUTPUT>`: Output file path (if not specified, outputs to stdout)
+- `-o, --output <OUTPUT>`: Output file path (if not specified, outputs to stdout). If directory and `-n` is used, combines directory with video title.
+- `-n, --name`: Use video title as the basename for the output file
+- `-u, --url`: Include video URL at the start of output. With markdown format, uses markdown link format `![title](url)`. With text/txt format, uses `title: url` format.
+- `-p, --playlist`: The provided URL is a playlist URL - fetch transcripts for all videos in the playlist
+- `-m, --max <NUMBER>`: Maximum number of videos to process in playlist mode (ignored in normal mode)
 - `--timestamps`: Show timestamps with transcript text (default: no timestamps)
 - `--list`: List all available transcripts instead of fetching
 - `--delay <DELAY>`: Delay between requests in milliseconds (default: 500ms)
@@ -137,12 +151,49 @@ ytt dQw4w9WgXcQ --cleanup -f markdown -o cleaned.md
 
 # With custom delay to avoid rate limiting
 ytt dQw4w9WgXcQ --delay 2000
+
+# Use video title as filename
+ytt dQw4w9WgXcQ -n
+
+# Use video title in specific directory
+ytt dQw4w9WgXcQ -o ./transcripts/ -n
+
+# Markdown with video URL link
+ytt dQw4w9WgXcQ -f md -u -n
+
+# Text format with video URL
+ytt dQw4w9WgXcQ -f txt -u
+
+# Process entire playlist
+ytt "https://www.youtube.com/playlist?list=PLAYLIST_ID" -p
+
+# Process playlist with video titles as filenames
+ytt PLAYLIST_URL -p -n
+
+# Process playlist and save to directory
+ytt PLAYLIST_URL -p -o ./playlist_transcripts/ -n
+
+# Process only first 5 videos in playlist
+ytt PLAYLIST_URL -p -m 5
+
+# Process first 10 videos with titles as filenames
+ytt PLAYLIST_URL -p -m 10 -n
 ```
 
 ## Output Formats
 
 ### Text Format (default)
 ```
+Hello world
+This is a transcript
+Without timestamps
+```
+
+### Text Format (with `-u/--url` flag)
+When using `-f text` or `-f txt` with `-u/--url`, the output starts with the video title and URL:
+```
+Video Title Here: https://www.youtube.com/watch?v=VIDEO_ID
+
 Hello world
 This is a transcript
 Without timestamps
@@ -195,6 +246,18 @@ With timestamps (if --timestamps flag is used):
 **[2.50]** This is a transcript
 ```
 
+### Markdown Format (with `-u/--url` flag)
+When using `-f md` or `-f markdown` with `-u/--url`, the output starts with a markdown link:
+```markdown
+![Video Title Here](https://www.youtube.com/watch?v=VIDEO_ID)
+
+# Transcript
+
+Hello world
+
+This is a transcript
+```
+
 ## ChatGPT Cleanup
 
 The `--cleanup` flag uses ChatGPT to improve transcripts:
@@ -233,9 +296,14 @@ See [docs/CHATGPT_CLEANUP.md](docs/CHATGPT_CLEANUP.md) for more details.
 
 ## Supported URL Formats
 
+### Video URLs
 - `https://www.youtube.com/watch?v=VIDEO_ID`
 - `https://youtu.be/VIDEO_ID`
 - `VIDEO_ID` (direct 11-character video ID)
+
+### Playlist URLs
+- `https://www.youtube.com/playlist?list=PLAYLIST_ID`
+- Use with `-p/--playlist` flag to process all videos in the playlist
 
 The video argument can be placed anywhere in the command:
 ```bash
@@ -243,6 +311,62 @@ ytt --languages en -f markdown mcbwS5Owclo
 ytt mcbwS5Owclo --languages en
 ytt --languages en mcbwS5Owclo -f markdown
 ```
+
+## Using Video Title as Filename
+
+The `-n/--name` flag uses the video title as the basename for the output file:
+
+```bash
+# Use video title as filename (e.g., "My_Video_Title.txt")
+ytt VIDEO_ID -n
+
+# Combine with directory output
+ytt VIDEO_ID -o ./transcripts/ -n  # Creates ./transcripts/My_Video_Title.txt
+
+# With specific format
+ytt VIDEO_ID -n -f markdown  # Creates My_Video_Title.md
+```
+
+**Note:** When both `-o` and `-n` are specified:
+- If `-o` points to a directory, the video title is used as the filename in that directory
+- If `-o` is a file path, it's used as-is (ignores `-n`)
+
+## Playlist Processing
+
+The `-p/--playlist` flag processes all videos in a YouTube playlist:
+
+```bash
+# Process all videos in a playlist
+ytt "https://www.youtube.com/playlist?list=PLAYLIST_ID" -p
+
+# Process playlist and use video titles as filenames
+ytt PLAYLIST_URL -p -n
+
+# Process playlist and save to directory
+ytt PLAYLIST_URL -p -o ./playlist_transcripts/ -n
+
+# Process playlist with markdown format and URLs
+ytt PLAYLIST_URL -p -f md -u -n
+
+# Process only first 5 videos in playlist
+ytt PLAYLIST_URL -p -m 5
+
+# Process first 10 videos with titles as filenames
+ytt PLAYLIST_URL -p -m 10 -n
+```
+
+**Playlist Output Behavior:**
+- With `-o` directory: Each video gets its own file (using video_id or title with `-n`)
+- With `-o` file path: Appends video_id to filename to avoid overwriting
+- With `-n` flag: Each video uses its title as the filename
+- Without `-o` or `-n`: Each video uses its video_id as the filename
+
+**Limiting Playlist Processing:**
+- Use `-m/--max <number>` to process only the first N videos in a playlist
+- Example: `ytt PLAYLIST_URL -p -m 5` processes only the first 5 videos
+- The flag is ignored in normal (single video) mode
+
+The tool shows progress for each video (`[1/10] Processing video: ...`) and continues processing even if individual videos fail.
 
 ## Rate Limiting
 
@@ -318,12 +442,15 @@ cargo test
 ```
 
 The project includes comprehensive test coverage:
-- 34 tests covering all major functionality
+- 35 tests covering all major functionality
+  - 26 tests in library code (lib.rs)
+  - 9 tests in main application (main.rs)
 - Unit tests for video ID extraction
 - XML parsing tests
 - Error handling tests
-- Output format tests
+- Output format tests (JSON, SRT, text, markdown)
 - ChatGPT integration tests
+- Playlist processing support
 
 ## Limitations
 
