@@ -117,6 +117,13 @@ impl YouTubeTranscript {
         Self::with_delay(500) // Default 500ms delay
     }
 
+    pub fn with_client(client: reqwest::Client) -> Self {
+        Self {
+            client,
+            delay_ms: 500,
+        }
+    }
+
     pub fn with_delay(delay_ms: u64) -> Self {
         let mut headers = reqwest::header::HeaderMap::new();
         headers.insert(
